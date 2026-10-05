@@ -32,7 +32,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from poc import Cell, fnv1a, canonical, sha  # noqa: E402  (C1 machinery)
+from poc import Cell, fnv1a, canonical, sha, Z95  # noqa: E402  (C1 machinery)
 
 TICKS = 32        # agent lifetime before compression (C1 law)
 CAP_TICKS = 120   # per-task tick budget (censored at this count)
@@ -154,6 +154,17 @@ DOCS = {i: build_summary(i) for i in range(len(POOL))}
 
 
 # ── registry ─────────────────────────────────────────────────────────────
+def cell_lb95(c):
+    """LB95 of a stored summary cell (Tier K sufficient statistic re-derived
+    from counts — NO replay needed; the statistic IS the posterior)."""
+    counts = c["counts"]
+    a = counts[0] + c["alpha"]
+    a0 = sum(counts) + c["alpha"] * len(counts)
+    p = a / a0
+    var = a * (a0 - a) / (a0 * a0 * (a0 + 1.0))
+    return p - Z95 * (var ** 0.5)
+
+
 class Registry:
     def __init__(self, capacity):
         self.capacity = capacity
@@ -174,13 +185,16 @@ class Registry:
         return out
 
     def best_for(self, q):
-        """Registry summary with the strongest evidence on q (max p_watch)."""
+        """Registry summary with the STRONGEST evidence on q (max LB95, not
+        max p-hat: inheritance speed depends on evidence depth — a point
+        estimate without depth fires nothing). Tie -> lowest id."""
         best = None
         for sid in sorted(self.entries):
             for c in self.entries[sid]["doc"]["cells"]:
                 if c["question"] == q:
-                    if best is None or c["p_watch"] > best[1]:
-                        best = (sid, c["p_watch"])
+                    lb = cell_lb95(c)
+                    if best is None or lb > best[1]:
+                        best = (sid, lb)
         return best[0] if best else None
 
     def touch(self, sid, rnd):
@@ -250,32 +264,49 @@ def choose_evictions(reg, need, strategy, rnd):
         return chosen, 0
 
     if strategy == "hybrid":
-        # uniqueness floor: last holders of any doubt coordinate are
-        # unevictable unless the registry forces it. Among the rest,
-        # evict lowest hybrid score (access + non-redundancy).
+        # uniqueness floor, BATCH-AWARE: no eviction batch may zero a doubt
+        # coordinate while an alternative victim exists. Greedy: take the
+        # lowest-score candidate unless evicting it would leave some coord
+        # holderless (given victims already chosen); forced breaches are
+        # counted only when nothing else can be evicted.
         coords = reg.coords()
-        last_holders = set()
-        for holders in coords.values():
-            if len(holders) == 1:
-                last_holders |= holders
-        evictable = [sid for sid in ids if sid not in last_holders]
-        if len(evictable) >= need:
-            accs = {sid: access_score(reg.entries[sid], rnd) for sid in evictable}
-            amax = max(accs.values()) or 1.0
-            def hscore(sid):
-                acc = accs[sid] / amax
-                red = max_redundancy(reg, sid, set(ids))
-                return 0.6 * acc + 0.4 * (1.0 - red)
-            order = sorted(evictable, key=lambda sid: (hscore(sid), sid))
-            return order[:need], 0
-        # registry pressure > protection: forced evictions, fewest-unique-first
-        forced_need = need - len(evictable)
-        def n_unique(sid):
-            return sum(1 for h in coords.values() if h == {sid})
-        forced_order = sorted(last_holders, key=lambda sid: (
-            n_unique(sid), reg.entries[sid]["uses"], sid))
-        chosen = evictable + forced_order[:forced_need]
-        return chosen, len(forced_order[:forced_need])
+        holder_sets = [h for h in coords.values() if h]
+        evictable = [sid for sid in ids
+                     if not any(h == {sid} for h in holder_sets)]
+        accs = {sid: access_score(reg.entries[sid], rnd) for sid in evictable}
+        amax = max(accs.values()) or 1.0
+        def hscore(sid):
+            acc = accs[sid] / amax
+            red = max_redundancy(reg, sid, set(ids))
+            return 0.6 * acc + 0.4 * (1.0 - red)
+        order = sorted(evictable, key=lambda sid: (hscore(sid), sid))
+        chosen, chosen_set = [], set()
+        for sid in order:
+            if len(chosen) >= need:
+                break
+            zeros = any(sid in h and (h - chosen_set) == {sid}
+                        for h in holder_sets)
+            if not zeros:
+                chosen.append(sid)
+                chosen_set.add(sid)
+        forced = 0
+        if len(chosen) < need:  # floor unbreakable without more victims
+            for sid in order:
+                if len(chosen) >= need:
+                    break
+                if sid not in chosen_set:
+                    chosen.append(sid)
+                    chosen_set.add(sid)
+                    forced += 1
+        if len(chosen) < need:  # pressure exceeds ALL evictable summaries
+            rest = sorted((sid for sid in ids if sid not in chosen_set),
+                          key=lambda sid: (reg.entries[sid]["uses"], sid))
+            for sid in rest:
+                if len(chosen) >= need:
+                    break
+                chosen.append(sid)
+                forced += 1
+        return chosen, forced
 
     raise ValueError(f"unknown strategy {strategy}")
 
@@ -318,13 +349,13 @@ def run_task(task, reg, rnd):
 
 
 # ── the simulation ───────────────────────────────────────────────────────
-def simulate(strategy, capacity=60, rounds=9, per_round=24, arrivals=5, seed_n=100):
+def simulate(strategy, capacity=30, rounds=9, per_round=24, arrivals=5, seed_n=100):
     assert "random" not in sys.modules, "fleet law violated: random imported"
     reg = Registry(capacity)
     for i in range(seed_n):
         reg.admit(DOCS[i], 0)
     tasks = task_list((rounds + 1) * per_round)
-    results, evict_log = [], []
+    results, evict_log, snapshots = [], [], []
     arrivals_next = seed_n
 
     # round 0: warm-up workload (access signal), then THE CULL to capacity
@@ -337,6 +368,7 @@ def simulate(strategy, capacity=60, rounds=9, per_round=24, arrivals=5, seed_n=1
         reg.evict(sid)
     if forced:
         evict_log[-1]["forced"] = forced
+    snapshots.append(set(reg.entries))
 
     for r in range(1, rounds + 1):
         for _ in range(arrivals):
@@ -351,9 +383,10 @@ def simulate(strategy, capacity=60, rounds=9, per_round=24, arrivals=5, seed_n=1
             reg.evict(sid)
         if forced:
             evict_log[-1]["forced"] = forced
+        snapshots.append(set(reg.entries))
 
     return {"strategy": strategy, "results": results, "evict_log": evict_log,
-            "final_ids": set(reg.entries)}
+            "final_ids": set(reg.entries), "round_snapshots": snapshots}
 
 
 def eviction_record(reg, chosen, strategy, rnd):
@@ -410,6 +443,17 @@ def metrics(sim, control_results):
     ev = sim["evict_log"]
     destroyed = [c for e in ev for c in e["destroyed_coords"]]
     lost_forever = [c for c in destroyed if c not in final_coords]
+    # dark rounds: (coord, round) pairs where the coord existed in history
+    # but the registry held ZERO of it — the swarm operated without the only
+    # reference points it ever had for that edge. Final coverage hides these
+    # gaps; dark rounds expose them.
+    dark = 0
+    for snap in sim["round_snapshots"]:
+        held = set()
+        for sid in snap:
+            for d in DOCS_BY_ID[sid]["doubts"]:
+                held.add((d["question"], d["watch"]))
+        dark += len(set(ace) - held)
     qcov = len({q for q in ALL_QS
                 if any(c["question"] == q for doc in final_docs for c in doc["cells"])})
     rare_cov = sum(1 for q in RARE_QS
@@ -429,6 +473,7 @@ def metrics(sim, control_results):
         "question_coverage": f"{qcov}/{len(ALL_QS)}",
         "coords_destroyed_events": len(destroyed),
         "coords_lost_forever": len(lost_forever),
+        "coord_dark_rounds": dark,
         "nearmiss_destroyed_events": sum(len(e["nearmiss_destroyed"]) for e in ev),
         "forced_evictions": sum(e.get("forced", 0) for e in ev),
         "final_size": len(sim["final_ids"]),
@@ -443,34 +488,48 @@ DOCS_BY_ID = {doc["id"]: doc for doc in DOCS.values()}
 # ── the re-earning demo: what does a destroyed reference cost to rebuild? ─
 def reearn_demo(access_sim):
     """Pick a coordinate destroyed under access-based eviction and measure
-    the floor cost for a fresh agent to re-derive the lost evidence."""
-    for e in access_sim["evict_log"]:
-        for coord in e["destroyed_coords"]:
-            q = coord[0]
-            lost = None
-            for sid in e["evicted"]:
-                for d in DOCS_BY_ID[sid]["doubts"]:
-                    if (d["question"], d["watch"]) == coord:
-                        lost = d
-            if lost is None or lost["n_eff"] < 8:
-                continue
-            probe = Cell(q, ANSWERS)
-            ticks = 0
-            while ticks < 400:
-                ticks += 1
-                probe.tick(world_answer(q, ticks))
-                lb = probe.lower_bound(ANSWERS[0])
-                if lb >= lost["lb95"] and probe.n_eff() >= lost["n_eff"]:
-                    return coord, lost, ticks, e["round"]
-            return coord, lost, None, e["round"]
+    the floor cost for a fresh agent to re-derive the lost evidence.
+    Preference order: near-miss stamps first, then rare worlds, then any."""
+    destroyed = [(e, coord) for e in access_sim["evict_log"]
+                 for coord in e["destroyed_coords"]]
+    destroyed.sort(key=lambda ec: (
+        0 if any(d["deficit"] < NEAR_MISS for d in doubt_stamps(ec[1], ec[0])) else 1,
+        0 if ec[1][0] in RARE_QS else 1, ec[0]["round"]))
+    for e, coord in destroyed:
+        q = coord[0]
+        lost = None
+        for sid in e["evicted"]:
+            for d in DOCS_BY_ID[sid]["doubts"]:
+                if (d["question"], d["watch"]) == coord:
+                    lost = d
+        if lost is None or lost["n_eff"] < 8:
+            continue
+        probe = Cell(q, ANSWERS)
+        ticks = 0
+        while ticks < 400:
+            ticks += 1
+            probe.tick(world_answer(q, ticks))
+            lb = probe.lower_bound(ANSWERS[0])
+            if lb >= lost["lb95"] and probe.n_eff() >= lost["n_eff"]:
+                return coord, lost, ticks, e["round"]
+        return coord, lost, None, e["round"]
     return None, None, None, None
+
+
+def doubt_stamps(coord, e):
+    out = []
+    for sid in e["evicted"]:
+        for d in DOCS_BY_ID[sid]["doubts"]:
+            if (d["question"], d["watch"]) == coord:
+                out.append(d)
+    return out
 
 
 def main():
     strategy = sys.argv[1] if len(sys.argv) > 1 else "hybrid"
     print("═" * 74)
     print(f"ZEROCLAW C2 eviction POC — strategy={strategy}  (pool={len(DOCS)}, "
-          f"capacity=60, 10 cycles, no RNG)")
+          f"capacity=30, 10 cycles, no RNG)")
     print("═" * 74)
 
     control = simulate("full")
@@ -517,7 +576,7 @@ def main():
             print(f"    rare world before it can spend those ticks)")
 
     print("\n" + "═" * 74)
-    print(f"RECEIPT: {'PASS' if m['final_size'] <= 60 or strategy == 'full' else 'FAIL'} "
+    print(f"RECEIPT: {'PASS' if m['final_size'] <= 30 or strategy == 'full' else 'FAIL'} "
           f"strategy={strategy} hits={m['hits']}/{m['tasks']} "
           f"saved={m['ticks_saved']}t cov={m['doubt_coord_coverage']} "
           f"lost_forever={m['coords_lost_forever']} "
