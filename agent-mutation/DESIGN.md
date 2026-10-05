@@ -142,3 +142,53 @@ lineage? Concretely: run the mutated child as the next step's live agent,
 flip the world again, and measure whether the second-generation mutation is
 smaller (pre-adapted) — the first test of whether mutation accumulates
 wisdom or just chases the last flip.
+
+## 7. M2 — Lineage under selection: the answer (`lineage_evolution.py`)
+
+**Question (from §6):** in a generational lineage where the world flips,
+does accumulated mutation wisdom compound or reset?
+
+**Setup.** World: good t=1..50 | bad t=51..100 | good t=101..150. Gen-0 =
+fresh v0; at each boundary an onset probe (clone stepped 10 ticks into the
+NEW regime) measures sense-cell drift `d = |overall_p − recent_p|`; the
+coupled operator mutates `lam` down + `rho` up together, monotone-clamped
+to a drift-proportional band (widen never tightens). Three tracks on the
+same deterministic ticks: **LINEAGE** (child inherits ledgers, re-tallied
+under the new lam), **FRESH-G** (lineage genome, fresh runtime — isolates
+genome from ledger), **INDEPENDENT** (fresh v0 each generation).
+
+**Results** (run receipt `41378f8a5e465fa9`, exit 0, cross-process
+byte-identical):
+
+- mutation_size (L1 from parent): **0.78 → 0.027** — the second flip needed
+  a 29× smaller mutation. The lineage pre-adapted into the forgetful band.
+- Every flip-sensed mutation beat the unmutated parent on the child's own
+  window (flip 1: −8 → 0; flip 2: +2 → +3). Selection held both times.
+- mutation_accuracy (single moves that help alone): **1/6 both flips**.
+  Only the sense-cell lam move helps by itself; the coupled set wins
+  JOINTLY. Per-move counterfactuals are a lower bound on coupled fitness —
+  the coupling is real pleiotropy, not six independent bets.
+- But: all-window totals **lineage +12 < fresh-genome +11 < independent
+  +18**. On the return to a good world (gen-2): lineage +3, fresh-genome
+  +2, fresh v0 +9. The flip-specialist genome (lam≈0.756) pays a standing
+  tax in stable regimes — v0's frozen memory (lam=1.0) is optimal when the
+  world never contradicts you, and a fresh agent has no baggage to decay.
+
+**Answer: compounding and reset happen in different layers.** Genome
+wisdom compounds — mutations shrink toward an asymptotic band and each one
+beats the do-nothing alternative. Ledger wisdom resets worse — inherited
+posterior baggage taxes re-entry. And a fresh reset wins outright when
+flips are rare relative to the window: lineages are flip-specialists.
+Lineage selection should win when flips are frequent; resets win when the
+world is long-stable. The unexplored middle is the `stable:tighten` branch
+(re-tighten lam toward v0 when the world reads stable) — never triggered by
+this schedule (drifts 0.236/0.244 stayed above the 0.20 trigger); a
+long-horizon schedule with stable gaps between flips is the natural M3.
+Sensitivity note: both boundary drifts sit barely above trigger — the
+G2-inhibit feedback keeps overall_p honest (0.600/0.654), which is what
+keeps flips detectable after the first widening; trigger 0.20 is
+load-bearing.
+
+Artifacts: `agent-mutation/lineage_evolution.py` (299 lines, stdlib only,
+no RNG), run receipt printed in-trace, second-run determinism asserted
+in-file.
