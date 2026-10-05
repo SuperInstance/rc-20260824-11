@@ -2,3 +2,4 @@ node_modules/
 dist/
 sandboxes/
 *.tsbuildinfo
+__pycache__/
