@@ -1,0 +1,9 @@
+[t+24m] PIPELINE page-runbook fired by gate relay.healthy.below(0.5) tier=MEDIUM p=0.359 margin_req=0.109
+[t+28m] PIPELINE snapshot-review fired by gate agent.drift.above(0.6) tier=FAST p=0.719 margin_req=0.097
+[t+34m] PIPELINE page-runbook fired by gate relay.healthy.below(0.5) tier=FAST p=0.414 margin_req=0.084
+[t+24m] PIPELINE page-runbook fired by gate relay.healthy.below(0.5) tier=MEDIUM p=0.359 margin_req=0.109
+[t+28m] PIPELINE snapshot-review fired by gate agent.drift.above(0.6) tier=FAST p=0.719 margin_req=0.097
+[t+34m] PIPELINE page-runbook fired by gate relay.healthy.below(0.5) tier=FAST p=0.414 margin_req=0.084
+[t+24m] PIPELINE page-runbook fired by gate relay.healthy.below(0.5) tier=MEDIUM p=0.359 margin_req=0.109
+[t+28m] PIPELINE snapshot-review fired by gate agent.drift.above(0.6) tier=FAST p=0.719 margin_req=0.097
+[t+34m] PIPELINE page-runbook fired by gate relay.healthy.below(0.5) tier=FAST p=0.414 margin_req=0.084
