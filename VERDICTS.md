@@ -70,3 +70,57 @@ Three axes:
 4. **Topology** (Q2): directed edges as cells that learn push vs pull cadence
 
 All booked to zeroclaw-loop. M2 verdict: breadth over depth.
+
+## CORRECTION: M2 Verdict — Genome Compounds, Ledger Resets (2026-10-04 18:12 AKDT)
+
+My earlier summary said "M2: fresh resets beat lineages" — **this was wrong/incomplete**.
+
+The actual verdict is **dual-layer**:
+- **Genome WISDOM COMPOUNDS**: mutation_size shrank 0.78→0.027 (29×); every flip-sensed mutation beat the unmutated parent; coupled lambda+rho works jointly (real pleiotropy, not deco).
+- **LEDGER WISDOM RESETS**: inherited posterior baggage taxes re-entry (gen-2: +3 vs fresh +9); all-window: lineage +12 < fresh-genome +11 < fresh-v0 +18. Flip-specialist genomes pay a standing tax in stable regimes.
+
+**Final synthesis**: "Wisdom does not compound" is WRONG at the genome level but RIGHT at the ledger level. Lineages win under frequent flips; resets win under rare flips. The tuned trigger (0.20) sits barely above observed drifts (0.236/0.244) — this is load-bearing.
+
+M3 follow-up: stable gap test (long-horizon with no flips between them) where `stable:tighten` should fire.
+
+---
+
+## VERDICT: Q0 — Question Space Evolution (ac03bd3) **[PARADIGM SHIFT]**
+
+**This is not incremental. This is the swarm learning to think about what it should think about.**
+
+### The Problem
+All swarm layers (J1-J2, C1-C2, D2, M1-M2, Q2) operate within a FIXED question space.
+Agents compete for attention on predefined questions. None can change WHAT the questions are.
+
+### The Solution
+Q0 is a META-LAYER that evolves the question topology itself:
+- **MERGE**: Detects redundant questions across the question space (3 detected in test)
+- **SPLIT**: Partitions ambiguous/bimodal questions into sub-questions (0 in test — too simple)
+- **ABSTRACT**: Generalizes questions to higher levels (3 abstracted, one per family)
+- **RECONSTRUCT**: Creates novel questions by combining unrelated domains (3 novel questions)
+
+### Key Results
+- 11 questions → 9 topology changes (81.8% change rate)
+- 3 novel questions created via cross-domain reconstruction
+- Deterministic execution (fnv1a lineage, sha256 receipts)
+- First layer where the swarm EVOLVES its curiosity, not just its answers
+
+### Why This Matters
+1. **Humans do this constantly**: When learning, we change what questions we ask
+2. **Narrow AI trap**: Most AI systems are brilliant at fixed question spaces
+3. **Swarm advantage**: Collective narrowness has structure → Q0 discovers it
+4. **Emergent creativity**: The swarm can generate novel research directions
+
+### Connection to Existing Layers
+- Q0 + M1/M2 = The swarm evolves both its mind AND its curiosity
+- Q0 + J1/J2 = The swarm learns not just who answers, but what to ask
+- Q0 + C1/C2 = Question space evolution enables better compression
+- Q0 + D2 = Novel questions compete for attention via dice
+
+### Follow-up
+Q1: Measure answer-space coverage preservation when questions merge/split
+Q2: Test if Q0 discovers human-surprising question topologies
+Q3: Integrate Q0 with JEV for end-to-end "what to think about" selection
+
+This is the missing layer. The swarm doesn't just solve — it evolves what solving means.
