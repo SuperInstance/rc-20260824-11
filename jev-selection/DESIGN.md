@@ -161,3 +161,154 @@ projected vs empirical, max deviation).
 - Commit + `git ls-remote` verbatim in the lane report.
 - i2i ledger: booked to `zeroclaw-loop`, title
   `swarm J1 selection: one paragraph summary`.
+
+---
+
+# Lane D2 — the dice roll, deepened (B-run, 2026-10-04)
+
+**Question (swarm D2):** *J1 fixed the moth quantum as one fnv1a draw over
+the sha-receipted odds vector. What other sampling strategies exist for the
+dice roll? Is fnv1a sufficient? What about temperature scaling? Sampling
+multiple times? Does the dice strategy matter for long-term swarm health?*
+
+Runnable proof: `dice_variants_deep.py` (this box, stdlib only, imports J1's
+`poc.py` — the projector is used, not re-implemented). A sibling A-run
+(`dice_variants.py`) benchmarks the same variant families on abstract N=10
+truths; this B-run plugs them into the real J1 mesh and audits the entropy
+source itself. Both runs are kept distinct — no clobbering (fleet law).
+
+## 1. Two laws, earned by measurement (not asserted)
+
+**D2-1 — RECEIPT WHAT YOU ROLL.** Any tilt (temperature, diversity, order
+statistics) enters through an *effective distribution* `J_eff` that is
+content-addressed alongside JEV's pure projection: the draw targets
+`sha([rcpt, strategy, J_eff])`. JEV's odds stay literal; when the dice tilt,
+the tilt is visible in the receipt. A strategy with a hidden tilt is a
+strategy that lies about its odds.
+
+**D2-2 — EVERY DIE GETS ITS OWN SHA RECEIPT.** The audit (§2) found J1's
+k-sweep pattern `fnv1a(receipt:k)` serially correlated (lag-1 ≈ **+0.30**,
+chi² 33.4 vs crit 30.6 at α=0.01). fnv1a over sha-preprocessed die content is
+clean (chi² 10.1, lag-1 ≈ −0.02). This is not a J1 bug — J1's live pattern
+draws k=1 against a fresh per-round receipt and was never exposed — it is an
+edge condition: any multi-draw, k-sweep, or rejection loop must give each die
+its own sha receipt before the fnv1a mix step.
+
+## 2. Entropy audit (section [A] of the POC, 4096 draws each)
+
+| stream | chi² (df15, α=.01 → crit 30.58) | lag-1 r | verdict |
+|---|---|---|---|
+| `fnv1a(receipt:k)` — J1 k-sweep | 33.38 | **+0.303** | correlated — D2-2 |
+| `fnv1a(str(k))` — raw ints | **192.79** | **+0.912** | never hash un-hashed content |
+| `die_receipt(k)` = fnv1a(sha(…)) | 10.07 | −0.020 | clean — D2 dice |
+| CDF walk @ uniform J (df4 → 13.28) | 2.13 | — | walk itself unbiased |
+
+**fnv1a is sufficient** as the final mix step over sha-receipted content —
+its 32-bit output is uniform and uncorrelated when the input is already
+well-mixed. It is not sufficient as a hash of low-entropy content: the raw-int
+stream is the cautionary receipt (chi² 193, r 0.91 — consecutive integers
+produce correlated draws through fnv1a's weak avalanche).
+
+## 3. The four families (section [B], frozen J1 mesh t=20, effective odds)
+
+| strategy | SENSE | PINCH | RELAY | MOLT | COMP | semantics |
+|---|---|---|---|---|---|---|
+| single (J) | 34.3 | 17.1 | 32.9 | 5.6 | 10.0 | literal odds — the contract |
+| T=0.5 | 43.8 | 10.9 | 40.4 | 1.2 | 3.8 | sharpen (exploit) |
+| T=2.0 | 27.5 | 19.4 | 27.0 | 11.2 | 14.9 | flatten (explore) |
+| best2 | 56.9 | 8.3 | 32.4 | 0.3 | 2.1 | order-statistics bias |
+| best3 | 71.7 | 3.1 | 24.8 | 0.0 | 0.4 | stronger bias |
+| div(λ), cold ledger | = J | = J | = J | = J | = J | no history → no tilt |
+
+Four proofs, all receipted in the run output:
+
+- **Temperature ≡ pool-weight scaling.** `J^(1/T) ∝ Π s̃_m^(w_m/T)`: scaling
+  the dice temperature is *identically* scaling every cell's vote weight by
+  1/T (verified: max|Δ| ≈ 7e-10, two float paths). The pool already owns an
+  organic temperature schedule — thin evidence → flat odds — so a bolted-on T
+  duplicates a knob the mesh has. T is only meaningful as an explicit
+  exploit/explore override, and then D2-1 applies: receipt the tilted odds.
+- **best-of-K is exact and enumerable.** Effective policy by enumeration over
+  N^K tuples, cross-checked against the closed form for K=2
+  (P(a) = 1−(1−J_a)² − 2·J_a·Σ_{J_b>J_a} J_b, agreement 1.1e-16); 4000
+  empirical draws match the exact policy within 0.5pt.
+- **Rejection sampling ≡ direct sampling** for finite normalized targets
+  (2000 accepted draws vs direct J_T: 1.1pt; acceptance rate 0.519 vs theory
+  1/M = 0.504). It earns its keep only when the target can't be normalized —
+  ours always can. No role at this dice; documented closed.
+- **Diversity tilt is bounded.** `tilt_a = 1 + λ(1 − T_a/max T)` over the
+  decayed turn-ledger (the D1 turn-cell, minimal form; γ=0.97 ≈ 23-round
+  memory). A starved agent's odds never exceed (1+λ)× its J odds; a cold
+  ledger leaves J untouched (the swarm starts fair, same as J1's cold start).
+
+## 4. Long-term health (section [C], 400 rounds × 7 strategies × 3 regimes)
+
+Three regimes: **stationary** (frozen warm mesh), **skew stress**
+(hand-authored J = 62/16/10/7/5 — one dominant lane), **world flip**
+(decisive regime change at round 200). Key receipts:
+
+- **single** holds the contract everywhere: fidelity ≤ 2.7pt, flip recovery
+  in one window (50 rounds). A pure random draw is *responsive* — it never
+  fights a world change.
+- **Sharpening starves tails — measured.** Under skew: T=0.5 takes the 5%
+  agent to 0.0% (400-round starvation), best3 to 0.2%, best2 to 0.2%.
+  In the stationary mesh, best3 fires the 5.6% lane **zero times in 400
+  rounds**. Order-statistics bias is silently lethal to tail lanes — this is
+  the strongest anti-best-of-K receipt in the lane.
+- **div3 is the starvation guardrail**: worst tail gap 67 → 29 rounds (57%
+  cut) under skew, flip recovery still 50 rounds, fidelity cost paid openly
+  (24pt vs J — the price of welfare). div1 is gentler (gap 40, 15pt).
+- **Flattening (T=2.0) buys coverage at fidelity's expense** (skew: tail at
+  11% vs 5% projected, 24pt off) — the same trade as div but with no ledger,
+  no bound, and no memory of *who* was starved. Diversity tilt dominates
+  temperature-flattening for the explore direction: it spends the budget
+  where the starvation actually happened.
+- **Sharpening direction** (T<1) is dominated by best-of-K, which achieves
+  the same effect without touching the receipted distribution J (draws are
+  always fair samples of J; only selection biases). Both starve tails; the
+  table quantifies by how much.
+
+## 5. Answer to the key question
+
+Does the dice-roll strategy matter for long-term swarm health? **Yes — at
+the tails, not at the top.** Every strategy eventually fires the dominant
+lanes; they differ violently on the 5% lanes (0.0%–11.5% realized under the
+same skew) and on starvation gaps (29–400 rounds). The single fnv1a draw is
+the right *default* — it is the only strategy where percentages stay literal
+(fidelity 2.2pt) and adaptation is never delayed. The principled amendment
+is bounded diversity (div-λ) as an explicit, receipted welfare guardrail
+against tail starvation; sharpening (T<1, best-of-K) belongs only in
+deliberate exploit windows, never as a standing dice, because it silently
+amputates tail lanes — and in this swarm, tail lanes are the compression and
+mutation reflexes the charter depends on.
+
+## 6. What this does NOT do (L4)
+
+- λ is hand-set (1 and 3 measured), not learned from outcomes. Learning λ —
+  or promoting the turn-ledger to a full Lane-1 cell with its own question
+  ("who is starving?") and gate — is D-lane follow-up.
+- The turn-ledger decays but does not chain (no sha chain yet); it is a
+  counter, not proof. Promotion to a chained cell is trivial by Lane-1 law.
+- Adaptive temperature (annealed by mesh confidence) unexplored; §3's
+  equivalence says it would be redundant with pool weights anyway.
+- best-of-K receipts the *policy* but selection is post-hoc; a "dice that
+  audits itself" (empirical vs exact policy drift alarm) is future work.
+
+## 7. When it fails (L5)
+
+- **λ unbounded or γ→1**: tilt converges to round-robin regardless of J —
+  the swarm stops listening to evidence. λ ≤ 3 and γ = 0.97 kept the
+  fidelity cost ≤ 24pt in the stress regimes; beyond that, re-measure.
+- **Any die without its own sha receipt** (D2-2 violation): draws correlate
+  (r ≈ +0.30 measured), statistical tests drift, best-of-K silently degrades
+  toward single-draw. The audit section exists to catch exactly this.
+- **Tilt without receipt** (D2-1 violation): the receipted J and the rolled
+  distribution diverge — the swarm believes one odds vector and executes
+  another. Fail loud: compare receipt vs draw distribution, not just J.
+
+## 8. Receipts
+
+- POC run: `dice_variants_deep.py` output (ALL CHECKS PASS, determinism:
+  two in-process runs byte-identical, output sha 0b5fe6fb0ca89edb…).
+- Commit + `git ls-remote` verbatim in the lane report.
+- i2i ledger: booked to `zeroclaw-loop`.
