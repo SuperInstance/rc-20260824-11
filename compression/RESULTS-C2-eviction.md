@@ -2,14 +2,14 @@
 
 Question: **when summaries outnumber cells, which summaries get evicted?**
 
-POC: `eviction_policy.py` (236 lines, stdlib only, NO RNG — every world bit
-derives from `fnv1a(content)`). World: 50 C1-style summaries over 48 doubt
-coordinates (8 topics × 6 variants); world truth `p` is a property of the
-**coordinate**, hosts differ only in evidence depth `n_eff` (same-world
-coherence asserted). Evict 50 → 20 (= cell count) under 3 policies. 40
-deterministic future agents probe coordinates and try to reach gate-fire
-`LB95 ≥ θ=0.70`, inheriting the deepest surviving host's Tier-K prior
-(fewer new ticks) or starting fresh if no host survived.
+POC: `eviction_policy.c2-rank-unique.py` (236 lines, stdlib only, NO RNG —
+every world bit derives from `fnv1a(content)`). World: 50 C1-style summaries
+over 48 doubt coordinates (8 topics × 6 variants); world truth `p` is a
+property of the **coordinate**, hosts differ only in evidence depth `n_eff`
+(same-world coherence asserted). Evict 50 → 20 (= cell count) under 3
+policies. 40 deterministic future agents probe coordinates and try to reach
+gate-fire `LB95 ≥ θ=0.70`, inheriting the deepest surviving host's Tier-K
+prior (fewer new ticks) or starting fresh if no host survived.
 
 ## Comparison (all invariants green, fail-loud asserts active)
 
@@ -56,11 +56,30 @@ Results digest (in-band): `a4a16bb972901f39`.
 
 ## Receipts
 
-- `eviction_policy.py` — this POC (run output above reproduced by
-  `python3 compression/eviction_policy.py`).
-- `eviction_policy.alt-20261004.py` — preserved parallel lane draft that
-  raced this file 17:39 AKDT (byte-identical duplicate snapshot removed;
-  sha256 `0e82f8fcbed0f1243c30ebe47f9db34c588806e030fd03509aa8902a1170ba52`).
+- `eviction_policy.c2-rank-unique.py` — this POC (run output above
+  reproduced by `python3 compression/eviction_policy.c2-rank-unique.py`).
+- `eviction_policy.alt-20261004.py` — preserved parallel lane draft (sha256
+  `0e82f8fcbed0f1243c30ebe47f9db34c588806e030fd03509aa8902a1170ba52`).
   Its thesis ("evictability = redundancy, never rank alone") is consistent
   with finding 1 — a merge candidate for the weight-sweep lane.
 - Books to: i2i ledger, `experiment:zeroclaw-c2-eviction`.
+
+## Write-race log (honest receipt of the collision)
+
+Two lanes were dispatched to the same charter path. Timeline (AKDT):
+
+1. 17:39 — this lane's 236-line POC written to `eviction_policy.py`, run
+   green (sha `fad22665…`), RESULTS written.
+2. 17:45 — commit 461175d: at commit time the contested path had been
+   re-clobbered seconds earlier by the parallel lane, so 461175d captured
+   the PARALLEL lane's file under `eviction_policy.py` while correctly
+   committing this lane's RESULTS. Caught in post-commit verification
+   (`git show 461175d:compression/eviction_policy.py` = 529 lines ≠ 236).
+3. Recovery — the parallel lane had archived THIS lane's file as
+   `eviction_policy.parallel-20261004.py` (archive-by-rename on their side
+   too). Verified by execution: reproduces `fad22665…` byte-identically.
+   Committed here as `eviction_policy.c2-rank-unique.py` (non-contested
+   name; file sha256
+   `eed1143f5abf79987339da7296f0898a358169513fa0f689d6e8b89c42c22e82`).
+   This commit supersedes the file pointer in 461175d; the numbers booked
+   to i2i (95e900a2) are unchanged and were always the 236-line POC's.
