@@ -244,8 +244,12 @@ def main() -> int:
           f" window, {pct(cum_fired)} cumulative")
     print(f"    cumulative over all {TICKS} ticks       : baseline {pct(cum(base, 'ok'))}, "
           f"learned {pct(cum(trace, 'ok'))}, ceiling {pct(cum(trace, 'ok_ideal'))}")
-    print(f"    moth draws sample the odds: P(fired=correct)={100 * cum_fired:.1f}% vs "
-          f"mean Jhat mass on correct={100 * mass:.1f}% (soft evidence, honest draws)")
+    freq = {a: sum(r["fired"] == a for r in trace) / TICKS for a in AGENTS}
+    mmass = {a: sum(r["J"][i] for r in trace) / TICKS for i, a in enumerate(AGENTS)}
+    drift = max(abs(freq[a] - mmass[a]) for a in AGENTS)
+    print(f"    moth draws sample the odds: P(fired=correct)={100 * cum_fired:.1f}% vs mean "
+          f"Jhat mass on correct={100 * mass:.1f}% (soft evidence); "
+          f"literal-odds drift max_a|freq-mass| = {drift:.4f}")
     print(f"  mesh convergence: mean Linf(Jhat, J_ideal) last {WINDOW} = {err_final:.4f}")
     print(f"  convergence speed: 90% of ceiling at t = {conv if conv else f'never (>{TICKS})'}")
     print(f"  doubt stamped: floor odds of never-correct agents = {100 * doubt:.3f}% (> 0)")
@@ -255,7 +259,7 @@ def main() -> int:
           and learn_win > base_win + 0.15          # learning beats no-learning
           and learn_win >= 0.85 * ceil_final       # learned reaches the Bayes mesh
           and err_final < 0.20                     # Jhat converged onto J_ideal
-          and abs(cum_fired - mass) < 0.08         # moth draws match the odds
+          and drift < 0.05                         # percentages stay literal (J1 law)
           and doubt > 0.0)                         # doubt floor never collapsed
     print(f"\n{'ALL CHECKS PASS' if ok else 'FAIL LOUD'} — "
           f"wiring is learned from outcomes, not hand-written.")

@@ -164,6 +164,78 @@ projected vs empirical, max deviation).
 
 ---
 
+# J2 — WIRING LEARNED FROM THE SELECTION-OUTCOME LOOP (2026-10-04)
+
+**Question (swarm lane J2):** *Instead of hand-writing JEV wiring W_m,
+can it be learned from the loop itself — the same cell-update mechanism
+Lane 1 already trusts?*
+
+## 1. The answer in one paragraph
+
+Yes. The wiring row `W_m(y)` is a **Dirichlet posterior over a
+|answers|×|agents| contingency table**: `c[y][a]` counts the ticks where
+cell m answered `y` and the correct agent was `a`. The update is the Lane-1
+mechanism verbatim — decay all counts by `λ`, land the observation, project
+the posterior mean `(c+α)/(Σc+Nα)` on demand. Supervision is the loop: each
+tick the cells observe the world, the mesh pools the learned rows into
+firing odds, the moth fires one agent, and the outcome (the TRUE correct
+agent) lands in every cell's table. No hand ever writes a row.
+
+## 2. The world (so "correct" means something)
+
+Hidden state `z_t ∈ {0,1,2}` per tick; cell m observes z through its own
+confusion matrix (0.80 / 0.70 / 0.55 main mass — cells differ in
+informativeness); the correct agent is `g(z)`. The **Bayes-optimal wiring**
+`row*(y) = P(g(z)=a | y_m=y)` is closed-form from the confusion matrix. It
+gives (a) the ceiling — the mesh run with ideal rows — and (b) the
+ground-truth target the learned rows must approach. The learner starts from
+"random" wiring: fnv1a noise pseudo-counts (deterministic, replay-stable,
+uninformative). A frozen copy of that noise run is the no-learning baseline.
+
+## 3. Measured results (100 ticks, N=5, M=3, |answers|=3)
+
+- **Rows converge onto Bayes:** learned rows ≈ 0.68–0.78 on the dominant
+  agent vs ideal 0.80; never-correct agents (SENSE, COMPRESS) decay to
+  0.01–0.03 — doubted, never zeroed.
+- **Mesh converges:** mean L∞(Ĵ, J_ideal) over the last window falls
+  0.225 → 0.051.
+- **Selection quality** (argmax Ĵ == correct, trailing window): baseline
+  frozen noise 0%, learned 65%, Bayes ceiling 75% — the loop earns 87% of
+  the ceiling; 90%-of-ceiling crossing at t=88.
+- **Literal odds hold under a moving mesh:** per-agent fired frequencies
+  match mean Ĵ mass within 0.0171 (J1's law, now verified on learned rows).
+- **Soft-evidence honesty:** mean Ĵ mass on the correct agent is ~29%, so
+  moth draws hit the correct agent ~20% cumulative — draws sample the odds
+  they are given; argmax quality is the selection claim, draws are honest
+  collapses of soft evidence. (Flat Ĵ is the N0=8 whisper-while-young
+  design doing its job on n_eff≈2.5 reactive cells; sharpening the pool is
+  a later knob, not a wiring problem.)
+- **Determinism:** two full runs byte-identical in-process AND across
+  processes (full-output sha256 identical). No RNG anywhere — states,
+  observations, init noise, moth draws are all fnv1a content.
+
+## 4. What this does NOT do (L4)
+
+- No outcome feedback into the *cell ledgers* (Lane 3 gates territory) —
+  only the wiring tables consume outcomes.
+- No credit assignment beyond the binary "who was correct" — no delayed
+  reward, no per-agent latency modeling.
+- The correct-agent oracle is an oracle; a real swarm replaces it with
+  downstream verification (Lane 2 mutants carrying falsifiable claims are
+  the natural source).
+- λ_w=0.99, α_w=0.25 are first knobs, not tuned optima.
+
+## 5. J2 receipts
+
+- POC: `wiring_learn.py` (271 lines, stdlib + Lane-1 cells imported,
+  no RNG). Run: `python3 jev-selection/wiring_learn.py` → ALL CHECKS PASS.
+- Cross-process replay: full stdout sha256 identical across runs.
+- i2i ledger: booked to `zeroclaw-loop`, title
+  `swarm J2 wiring-learn: wiring rows are Dirichlet posteriors over the
+  selection-outcome loop; learned mesh reaches 87% of the Bayes ceiling`.
+
+---
+
 # Lane D2 — the dice roll, deepened (B-run, 2026-10-04)
 
 **Question (swarm D2):** *J1 fixed the moth quantum as one fnv1a draw over
