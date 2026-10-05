@@ -1,112 +1,119 @@
-# Quilted Relationships — DESIGN.md (Swarm Q2, 2026-10-04)
+# Quilted Relationships — DESIGN.md (ZeroClaw Swarm Q2 / Lane S5, 2026-10-04)
 
-**QUESTION:** What does "push and pull" between agents mean at the data
-structure level?
+Swarm law (Casey, via the architecture verdict): *agents are a collective with
+**quilted relationships** — each with different context that learns to push and
+pull with each other.* A quilt is a mesh, not a tree: no center, no hierarchy,
+no single pipe. This lane answers: **what IS a relationship between two agents,
+as a data structure — and how does it learn?**
 
-**ANSWER (the whole design in one sentence):** push and pull are the two
-halves of one directed edge that is itself a cell — two ordered doc-sha
-buffers plus decayed hit/miss pseudo-counts, whose Laplace mean `p(hit)`
-drives a push-cadence backoff timer. High hit rate → the timer shortens →
-the edge pushes often. High miss rate → the timer lengthens → the edge
-falls back to targeted pulls. The relationship *learns its own shape*;
-nobody schedules it.
+## 1. Geometry, not message-passing
 
-Runnable proof: `poc.py` (223 lines, stdlib only, NO RNG — every world bit
-is `fnv1a(content)`, exoj law). Receipt below is from the actual run.
+A relationship is an unordered pair {A, B} realized as **two directed edges**
+(A→B, B→A). Each directed edge is a cell-like object with state:
 
-## 1. The data structure
-
-```
+```text
 Edge(src -> dst):
-  out_buffer   ordered shas the SOURCE offers   (window of last CAP docs,
-                sorted by fnv1a(sha) — content-derived, permutation-stable)
-  in_buffer    ordered shas the DST received via THIS edge (arrival order,
-                windowed — the edge's private delivery ledger)
-  ups, downs   decayed pseudo-counts (Lane-1 cell), lam = 0.90
-  p(hit)       = (ups + 1) / (ups + downs + 2)   — Laplace-smoothed mean
-  backoff      push cadence timer, 1..8; since = cycles since last push
+  context_buffer : ordered list of {source_agent_id, doc_sha, compression_tier}
+                   (oldest first — age desc, fnv1a tiebreak; append-mostly)
+  cells          : push-novel?, pull-novel?, negotiate-hit?   (Lane-1 cells:
+                   decayed pseudo-counts, Laplace-smoothed p, tick ledger)
+  counters       : push/pull/negotiation successes and attempts (raw evidence)
 ```
 
-An **Agent** is a doc store (`docs`, `hist`) — nothing more. All
-relationship state lives on the edge, not the agents. A bidirectional
-relationship is exactly two directed edges (A→B ≠ B→A; each learns its
-own cadence from its own evidence).
+The **shape** of an edge is the probability triple
+`(p_push, p_pull, p_neg)` — its local curvature. Shape determines flow
+direction: a confident edge pushes (source's content is probably novel to the
+peer), an uncertain edge pulls (destination lacks half the source's buffer).
+Nobody assigns roles; the geometry grows them. In the POC's final ledger the
+mature A↔B edges sit at shape (0.87, 0.50, 0.13) while the bruised young B→C
+edge rests at (0.19, 0.58, 0.39) — same mesh, different curvature, different
+behavior. That is the quilt: **the relationship itself accumulates evidence
+about its own usefulness and gates itself accordingly.**
 
-## 2. Push and pull, precisely
+## 2. The context_buffer (spec fields, ordering law)
 
-- **PUSH** (source-initiated, *blind*): when `since >= backoff`, src offers
-  its **newest** doc. The pusher does not know what the dst wants or has —
-  that blindness is what makes push cheap but lossy. Outcome for the edge
-  cell:
-  - dst already knew it → **redundant** miss,
-  - new but not wanted → **unwanted** miss,
-  - new and wanted → **hit**.
-  - hit → `backoff = max(1, backoff−1)`; miss → `backoff = min(8, backoff+1)`.
-- **PULL** (destination-initiated, *targeted*): on off-cadence cycles, dst
-  scans src's `out_buffer` for docs it lacks **and** wants
-  (`fnv1a(sha:dst:want) % 100 < affinity`), takes the best by
-  `fnv1a(sha:dst:score)`. A pull cannot be redundant or unwanted by
-  construction — that is the entire point of pull.
+Entries carry exactly the spec triple — `{source_agent_id, doc_sha,
+compression_tier}` (K knowledge / D doubt / T trajectory, per Lane C1) — plus
+an `age` for ordering and a `known_peer` mark. The buffer is a **ledger, not a
+queue**: it only grows (POC requirement: buffers visibly grow, 5→18 entries on
+A→B). Push takes the oldest eligible entry; `known_peer` marks are the edge's
+private coverage map of *what the peer has already seen* — the memory that
+kills redundant delivery.
 
-So "push vs pull" at the data-structure level = **who supplies the
-targeting information**: push spends the *source's* nothing (blind, newest
-first, pays in misses); pull spends the *destination's* want-vector
-(targeted, pays in asking). The edge cell is the accountant that shifts
-traffic toward whichever side's information is currently cheaper.
+## 3. The three motions
 
-## 3. Why the edge is cell-like (charter alignment)
+- **PUSH — gated by confidence.** The edge's push cell must say p(novel) ≥ θ
+  (0.40), with a short warmup (first 3 attempts always fire — exploration).
+  Confidence in *content* is the tier: **only K and T docs are pushed; doubts
+  (D) are never pushed at anyone** — doubt stamped, not lowered. Doubts move
+  only by negotiation or explicit pull.
+- **PULL — gated by uncertainty.** When the destination lacks ≥ half of the
+  source's buffer, it probes one fnv1a-selected entry. The probe is honest and
+  blind: it can fetch a doc the destination already has (a redundant pull
+  ticks "no" and still marks the map). Pulls may fetch D-tier — asking for
+  someone's doubt is allowed; imposing yours is not.
+- **NEGOTIATE — mutual proposal.** Both sides propose their oldest not-known
+  doc; if the shas match, the doc is shared bidirectionally (both corpora
+  guarantee it, both edges mark it, both tick success); if different, strict
+  no-op. In practice negotiation is the **ancestor-reconciliation ceremony**:
+  strangers discover shared cloth by independently proposing the same oldest
+  thing. In the trace, A↔B reconciled its two origin *doubts* by match (tier
+  D, cycles 1–2), and when agent C joined, B↔C performed the same rite
+  (cycles 11–12) — that is how a child of A became legible to a stranger.
 
-Same shape as Lane 1: append-only evidence (every push outcome lands as
-±1 after decay), counts are the state, `p` is Laplace-smoothed so a cold
-edge starts honest at 0.5, decay `lam=0.90` forgives old misses (reflex
-loosening — a relationship that went stale can reopen). No clamping, no
-RNG, no floats in the state. The backoff rule is the edge's gate: a
-one-parameter reflex that tightens from evidence, exactly the
-*ticks-as-probabilities* law applied to relationships instead of cells.
+## 4. Learning — three mechanisms, one guarantee
 
-## 4. POC demo (the required six steps) — receipts from the run
+1. **Mark-on-contact.** Every delivery — push, pull, or negotiation — marks
+   the sha `known_peer` on that edge. A doc can be redundantly delivered **at
+   most once per edge, ever** (POC CLAIM3, mesh-wide). The stranger tax is
+   real but bounded: 2 ancestor docs per new direction, once.
+2. **Idle decay (λ=0.85) = reflex loosening.** Old failures fade between
+   ticks, so a gate bruised by early redundancy reopens as evidence ages
+   (A→B: p_novel 0.18 after the ancestor tax → 0.88 by cycle 14). Gates can
+   also *rest*: B→C stopped pushing at p_novel 0.17 (cycle 14) — the edge
+   refusing to spam is the learning, not a failure of it.
+3. **Counters.** Raw successes/attempts are kept beside the smoothed cells —
+   the doubt about the doubt. Cells gate; counters testify.
 
-World: agents gen 1 doc/cycle; affinity table — B wants 70% of A's docs,
-A wants only 30% of B's, C's edges 45–60%. Cycles 1–14 pair AB, C joins
-at t=15, mesh to t=20.
+## 5. Quilting: integrating a third agent (observed in the POC)
 
-1. **A, B different knowledge** — 3 seed docs each, disjoint sets. ✓
-2. **Bidirectional edges** — A→B and B→A, independent learners. ✓
-3. **20 cycles of push/pull** — full trace printed per cycle. ✓
-4. **Edge quality improves** — miss rate (= (redundant+unwanted)/pushes):
-   pair AB t1–14: **0.54** → C-join shock t15–17: **0.82** (multipath
-   redundancy — the mesh's new second routes make blind pushes collide)
-   → settled mesh t18–20: **0.38**. Shock, then adaptation, then better
-   than the pre-C baseline. And per-edge shapes diverge as the spec
-   predicts: A→B ends `p=0.70, backoff=1` (high hit = frequent push);
-   B→A ends `p=0.39, backoff=4, 6 pulls vs 8 pushes` (high miss = more
-   pull). ✓
-5. **Agent C integrates** — 4 fresh cold edges (p=0.5) at t=15; by t=20
-   they carry 9 pulls, and C reaches 15/52 docs = 0.29 coverage vs 0.12
-   solo (2.4×). ✓
-6. **Full mesh benefits** — coverage at t=20: A 0.73, B 0.87 vs 0.44 solo;
-   C 0.29 vs 0.12 solo. Every agent beats its solo counterfactual, and
-   the settled-window miss rate beats the pairwise era. ✓
+C joins at cycle 11 as a child of A (inherits the shared cloth; the parent
+edge is birth-marked both ways — the gift is pre-known). Four cycles later:
+C pulled 6 docs while its uncertainty over B's buffer drained 0.74 → 0.54;
+C holds 6 A-docs and 4 B-docs; 3 C-docs climbed up to A; the mature A↔B
+edges had **zero** redundant pushes in the whole era (CLAIM2); and edge
+successes per cycle rose 2.00 (era 1, two agents) → 6.75 (era 2, three
+agents, six edges) — more agents, more flow, no growth in waste (CLAIM5).
+The mesh's integration choreography, as observed: *birth-marks first,
+doubt-negotiation second, bounded ancestor tax third, pull-burst while
+uncertain, push once confident.*
 
-Invariants (asserted, fail-loud): `p ∈ (0,1)`, backoff bounded, buffers
-capped at 8, no duplicate delivery via any edge, **bit-identical full
-replay** — `sha=e24cf22ef7b481ef` for the whole 20-cycle trace.
+## 6. What this is NOT (honest limits)
 
-## 5. Honest limits
+- No adversarial peers: an agent that lies (offers docs it doesn't hold) is
+  unmodeled. The sha-addressed buffer makes lying *detectable* (offer a sha,
+  fail to produce the doc) but the POC has no punishment cell for it yet.
+- Append-mostly forever: buffers grow unboundedly. Eviction is Lane C2's
+  question (proof vs working set), not this lane's.
+- No evidence pooling on negotiation: matched docs are identical by sha, so
+  the match itself is the transfer. When both peers hold a doc but their
+  *cells* for that question differ, negotiation should max-merge counts
+  (never lower — two-ledgers law). Reserved as the next increment.
+- Transit redundancy exists and is honest: C pushed A-lineage docs to B that
+  B already had via its direct A edge (cycles 11–12). Multi-path delivery
+  costs; the mark-on-contact bound keeps the cost once-per-doc-per-edge.
 
-- "Unwanted" misses can never reach zero on a blind push — the floor is
-  `1 − affinity`. The edge's job is to *route around* the floor (pull),
-  not to repeal it.
-- Affinity is static here; a world that drifts would exercise the decay
-  path harder (lam is the only knob that tracks it — future lane).
-- One doc per push/pull per cycle; batching is a parameter sweep away,
-  deliberately out of scope for the simple spec.
+## 7. Next research question
 
-## 6. Receipts
+**Should JEV's projector consume edge shapes?** A high-p_novel,
+high-neg-hit edge is a trust gradient — the natural prior mass for "which
+agent should fire next." Lane D1's normalize-with-floor already projects
+turn-odds from cells; folding edge shape into that projection would make
+trust *geometric* (curvature in the fabric) rather than a score kept by a
+judge. Open: does shape-as-prior double-count evidence the turn-cells
+already carry?
 
-- POC: `python3 quilted-relationships/poc.py` → ALL CHECKS PASS,
-  deterministic replay sha `e24cf22ef7b481ef` (this box, 2026-10-04).
-- Commit + `git ls-remote` verbatim in the lane report (charter law).
-- i2i ledger: booked to `zeroclaw-loop`.
-- Retry-1 (347-line over-spec attempt) archived by rename as
-  `poc.py.retry1-archived-20261004` — nothing deleted.
+---
+POC: `poc.py` (299 lines, stdlib, zero RNG — all world bits fnv1a).
+Determinism receipt: TRACE FINGERPRINT `397b7b4eb552`, byte-identical on
+rerun; six claims asserted in-process, fail-loud per charter law.
