@@ -4,9 +4,6 @@
 v4: create_question fires only during INHALE phase (1/3 of time)
 v5: create_question fires during INHALE + HOLD phases (2/3 of time)
 
-Hypothesis: coverage drag in v4 (-37%) caused by coverage-starved phases.
-Allowing create_question in HOLD should flip coverage positive.
-
 Results:
   v4: fit=0.7050 cov=0.8387 smooth=0.996
   v5: fit=0.7299 cov=0.8803 smooth=0.996
@@ -62,35 +59,29 @@ def run_variant(mode, seed=42, ticks=TICKS):
                 if d not in ag['cov']:
                     ag['cov'][d] = rng.uniform(0, 0.1)
             
-            # The v4 vs v5 difference: when does create_question fire?
+            # The v4 vs v5 difference
             if mode == 'v4':
-                # v4: only INHALE (1/3 of time)
                 if phase == 'I':
                     target = min(ag['cov'], key=ag['cov'].get)
                     ag['cov'][target] = min(1.0, ag['cov'][target] + 0.05)
             elif mode == 'v5':
-                # v5: INHALE + HOLD (2/3 of time)
                 if phase in ('I', 'H'):
                     target = min(ag['cov'], key=ag['cov'].get)
                     ag['cov'][target] = min(1.0, ag['cov'][target] + 0.04)
             
-            # Base mutation (same for both)
             if rng.random() < 0.2:
                 for d in DOMAINS:
                     ag['cov'][d] = max(0.0, min(1.0, ag['cov'][d] + rng.uniform(-0.1, 0.1)))
             
-            # Coverage sharing (same for both)
             if rng.random() < 0.05:
                 other = rng.choice(agents)
                 for d in DOMAINS:
                     if d not in other['cov']:
                         other['cov'][d] = ag['cov'].get(d, 0) * 0.5
             
-            # Fitness
             ag['fit'] = sum(ag['cov'].values()) / len(ag['cov']) * 0.6 + rng.uniform(0, 0.4)
             ag['fit'] = min(1.0, max(0.0, ag['fit']))
         
-        # JEV selection
         if t % 10 == 0:
             agents.sort(key=lambda a: a['fit'], reverse=True)
             for i in range(min(16, len(agents))):
@@ -129,7 +120,6 @@ def main():
     else:
         print(f"\nVERDICT: needs more work (coverage: {cd:+.1f}%)")
     
-    # Save full results
     with open('breathing_v5_results.json', 'w') as f:
         json.dump(results, f, indent=2)
 
