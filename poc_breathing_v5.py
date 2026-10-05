@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Breathing POC v5 - cross-phase create_question.
+"""Breathing POC v5 — cross-phase create_question.
 
 v4: create_question fires only during INHALE phase (1/3 of time)
 v5: create_question fires during INHALE + HOLD phases (2/3 of time)
